@@ -44,7 +44,7 @@ npm run build
 netlify deploy --prod --dir dist --site f385c000-9ab8-4145-9fe7-26aa35070d15
 ```
 
-`netlify.toml` публикует `dist`. Фото в `public/photos` копируются как есть, cache-control immutable.
+`netlify.toml` публикует `dist`. Фото в `public/photos` копируются как есть, cache-control immutable. **Фото не в git** (`catalog/public/photos/` в gitignore) — деплой и `dist` берут их с диска; в репозитории их нет.
 
 ### Данные
 

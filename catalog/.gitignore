@@ -2,4 +2,4 @@ node_modules
 dist
 .DS_Store
 .netlify
-public/photos/_test.jpg
+public/photos/
