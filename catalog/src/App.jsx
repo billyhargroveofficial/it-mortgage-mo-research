@@ -1,29 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import houses from "./data/houses.json";
+import kozelskHouses from "./data/houses-kozelsk.json";
 import cityCoords from "./data/city-coords.json";
 
-const PRICE_CHIPS = [
-  { id: "all", label: "Все цены" },
-  { id: "8-9", label: "8–9 млн" },
-  { id: "9-12", label: "9–12 млн" },
-  { id: "12-15", label: "12–15 млн" },
-];
+const PRICE_CHIPS = {
+  mo: [
+    { id: "all", label: "Все цены" },
+    { id: "8-9", label: "8–9 млн" },
+    { id: "9-12", label: "9–12 млн" },
+    { id: "12-15", label: "12–15 млн" },
+  ],
+  kozelsk: [
+    { id: "all", label: "Все цены" },
+    { id: "u3", label: "до 3 млн" },
+    { id: "3-6", label: "3–6 млн" },
+    { id: "6-9", label: "6–9 млн" },
+    { id: "9-18", label: "9–18 млн" },
+    { id: "18plus", label: "18+ млн" },
+  ],
+};
 
 const KM_CHIPS = [
   { id: "all", label: "Любое расстояние" },
   { id: "20", label: "До 20 км" },
   { id: "30", label: "До 30 км" },
   { id: "40", label: "До 40 км" },
-];
-
-const LOOK_CHIPS = [
-  { id: "nice", label: "Топ" },
-  { id: "live", label: "Живые" },
-  { id: "ok", label: "Обычные" },
-  { id: "render", label: "Рендеры" },
-  { id: "junk", label: "Говно" },
-  { id: "unknown", label: "Без фото" },
-  { id: "all", label: "Все" },
 ];
 
 const LOOK_BADGE = {
@@ -33,11 +34,48 @@ const LOOK_BADGE = {
   unknown: "Нет фото",
 };
 
-function matchesLook(h, look) {
-  if (look === "all") return true;
-  if (look === "live") return h.look === "nice" || h.look === "ok";
-  return h.look === look;
+const LOOK_RANK = { nice: 0, ok: 1, render: 2, junk: 3, unknown: 4 };
+
+const REGIONS = {
+  mo: {
+    id: "mo",
+    path: "/",
+    tab: "Подмосковье",
+    houses,
+    areaName: "Московская область",
+    eyebrow: "Подмосковье · 11 сентября 2026",
+    lead: (n) =>
+      `${n} домов с землёй ИЖС или ЛПХ, 8–15 млн ₽, примерно до 50 км от МКАД. Показаны сразу все — от топовых до развалюх, отсортированы по качеству.`,
+    searchPlaceholder: "Город, например Химки или Чехов",
+  },
+  kozelsk: {
+    id: "kozelsk",
+    path: "/kozelsk",
+    tab: "Козельск",
+    houses: kozelskHouses,
+    areaName: "Калужская область",
+    eyebrow: "Козельск, Калужская обл. · 11 сентября 2026",
+    lead: (n) =>
+      `${n} домов с землёй ИЖС или ЛПХ в Козельске и районе. Показаны сразу все — от топовых до развалюх, отсортированы по качеству. Льготный лимит IT-ипотеки — 9 млн ₽, комбо с рыночным хвостом — до 18 млн.`,
+    searchPlaceholder: "Поиск по Козельску",
+  },
+};
+
+function routeFromPath() {
+  const p = window.location.pathname.replace(/\/+$/, "");
+  const seg = p.split("/").filter(Boolean);
+  let region = "mo";
+  let id = null;
+  if (seg[0] && seg[0].toLowerCase() === "kozelsk") {
+    region = "kozelsk";
+    if (seg[1] && /^\d+$/.test(seg[1])) id = seg[1];
+  } else if (seg[0] && /^\d+$/.test(seg[0])) {
+    id = seg[0];
+  }
+  return { region, id };
 }
+
+const BASE_TITLE = "Дома, которые смотрим";
 
 function formatPrice(n) {
   return new Intl.NumberFormat("ru-RU").format(n) + " ₽";
@@ -177,27 +215,99 @@ function CardCarousel({ id, alt }) {
 }
 
 export default function App() {
+  const initialRoute = routeFromPath();
+  const [region, setRegion] = useState(initialRoute.region);
   const [price, setPrice] = useState("all");
   const [km, setKm] = useState("all");
   const [land, setLand] = useState("all");
-  const [look, setLook] = useState("nice");
-  const [sort, setSort] = useState("price");
+  const [sort, setSort] = useState("look");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
   const [modalOn, setModalOn] = useState(false);
   const [slide, setSlide] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOn, setFiltersOn] = useState(false);
+
+  const cfg = REGIONS[region];
+  const dataset = cfg.houses;
+  const priceChips = PRICE_CHIPS[region];
+  const regionRef = useRef(region);
+  useEffect(() => {
+    regionRef.current = region;
+  }, [region]);
+
+  useEffect(() => {
+    if (!initialRoute.id) return;
+    const h = REGIONS[initialRoute.region].houses.find((x) => x.id === initialRoute.id);
+    if (!h) return;
+    setSlide(0);
+    setOpen(h);
+    document.title = `${h.title} — ${REGIONS[initialRoute.region].tab}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyDefaults = () => {
+    setPrice("all");
+    setKm("all");
+    setLand("all");
+    setSort("look");
+    setQ("");
+    setOpen(null);
+  };
+
+  const switchRegion = (id) => {
+    if (id === region) return;
+    window.history.pushState({}, "", REGIONS[id].path);
+    setRegion(id);
+    applyDefaults();
+    setFiltersOpen(false);
+    document.title = BASE_TITLE;
+    window.scrollTo({ top: 0 });
+  };
+
+  useEffect(() => {
+    const onPop = () => {
+      const r = routeFromPath();
+      if (r.region !== regionRef.current) {
+        setRegion(r.region);
+        applyDefaults();
+      }
+      if (r.id) {
+        const h = REGIONS[r.region].houses.find((x) => x.id === r.id);
+        if (h) {
+          setSlide(0);
+          setOpen(h);
+          document.title = `${h.title} — ${REGIONS[r.region].tab}`;
+          return;
+        }
+      }
+      setModalOn(false);
+      document.title = BASE_TITLE;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openHouse = (h) => {
     setSlide(0);
     setOpen(h);
+    document.title = `${h.title} — ${cfg.tab}`;
+    window.history.pushState({ modal: h.id }, "", `${cfg.path === "/" ? "" : cfg.path}/${h.id}`);
   };
 
-  const closeHouse = () => setModalOn(false);
+  const closeHouse = () => {
+    setModalOn(false);
+    document.title = BASE_TITLE;
+    const st = window.history.state;
+    if (st && st.modal) window.history.back();
+    else window.history.pushState({}, "", cfg.path);
+  };
 
   useEffect(() => {
     if (!open) return;
-    const id = requestAnimationFrame(() => setModalOn(true));
-    return () => cancelAnimationFrame(id);
+    const id = setTimeout(() => setModalOn(true), 20);
+    return () => clearTimeout(id);
   }, [open]);
 
   useEffect(() => {
@@ -206,51 +316,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, [modalOn, open]);
 
-  const lookCounts = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    const base = houses.filter((h) => {
-      if (price !== "all" && h.band !== price) return false;
-      if (km !== "all" && (h.km == null || h.km > Number(km))) return false;
-      if (land !== "all" && h.land !== land) return false;
-      if (query) {
-        const hay = `${h.city} ${h.title} ${h.land}`.toLowerCase();
-        if (!hay.includes(query)) return false;
-      }
-      return true;
-    });
-    const n = (id) => base.filter((h) => matchesLook(h, id)).length;
-    return Object.fromEntries(LOOK_CHIPS.map((c) => [c.id, n(c.id)]));
-  }, [price, km, land, q]);
-
-  const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    const rank = { nice: 0, ok: 1, render: 2, junk: 3, unknown: 4 };
-    let list = houses.filter((h) => {
-      if (price !== "all" && h.band !== price) return false;
-      if (km !== "all" && (h.km == null || h.km > Number(km))) return false;
-      if (land !== "all" && h.land !== land) return false;
-      if (!matchesLook(h, look)) return false;
-      if (query) {
-        const hay = `${h.city} ${h.title} ${h.land}`.toLowerCase();
-        if (!hay.includes(query)) return false;
-      }
-      return true;
-    });
-    list = [...list].sort((a, b) => {
-      if (sort === "look") return (rank[a.look] ?? 9) - (rank[b.look] ?? 9) || a.price - b.price;
-      if (sort === "km") return (a.km ?? 99) - (b.km ?? 99) || a.price - b.price;
-      if (sort === "area") return (b.area ?? 0) - (a.area ?? 0) || a.price - b.price;
-      return a.price - b.price || (a.km ?? 99) - (b.km ?? 99);
-    });
-    return list;
-  }, [price, km, land, look, sort, q]);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const id = setTimeout(() => setFiltersOn(true), 20);
+    return () => clearTimeout(id);
+  }, [filtersOpen]);
 
   useEffect(() => {
-    if (!open) return;
+    if (filtersOn || !filtersOpen) return;
+    const t = setTimeout(() => setFiltersOpen(false), 320);
+    return () => clearTimeout(t);
+  }, [filtersOn, filtersOpen]);
+
+  useEffect(() => {
+    if (!open && !filtersOpen) return;
     const onKey = (e) => {
-      if (e.key === "Escape") closeHouse();
-      if (e.key === "ArrowRight") setSlide((s) => s + 1);
-      if (e.key === "ArrowLeft") setSlide((s) => Math.max(0, s - 1));
+      if (e.key !== "Escape") return;
+      if (filtersOpen) {
+        setFiltersOn(false);
+        return;
+      }
+      closeHouse();
     };
     window.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
@@ -258,93 +344,86 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
+  }, [open, filtersOpen]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "ArrowRight") setSlide((s) => s + 1);
+      if (e.key === "ArrowLeft") setSlide((s) => Math.max(0, s - 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    let list = dataset.filter((h) => {
+      if (price !== "all" && h.band !== price) return false;
+      if (km !== "all" && (h.km == null || h.km > Number(km))) return false;
+      if (land !== "all" && h.land !== land) return false;
+      if (query) {
+        const hay = `${h.city} ${h.title} ${h.land}`.toLowerCase();
+        if (!hay.includes(query)) return false;
+      }
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      if (sort === "price") return a.price - b.price || (a.km ?? 99) - (b.km ?? 99);
+      if (sort === "area") return (b.area ?? 0) - (a.area ?? 0) || a.price - b.price;
+      if (sort === "km") return (a.km ?? 99) - (b.km ?? 99) || a.price - b.price;
+      return (LOOK_RANK[a.look] ?? 9) - (LOOK_RANK[b.look] ?? 9) || a.price - b.price;
+    });
+    return list;
+  }, [dataset, price, km, land, sort, q]);
+
   const cities = useMemo(
-    () => [...new Set(houses.map((h) => h.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru")),
-    [],
+    () => [...new Set(dataset.map((h) => h.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru")),
+    [dataset],
   );
+
+  const activeCount =
+    (price !== "all" ? 1 : 0) +
+    (km !== "all" ? 1 : 0) +
+    (land !== "all" ? 1 : 0) +
+    (sort !== "look" ? 1 : 0) +
+    (q.trim() ? 1 : 0);
+
+  const closeFilters = () => setFiltersOn(false);
 
   return (
     <div className="page">
       <header className="hero">
-        <p className="eyebrow">Подмосковье · 11 сентября 2026</p>
+        <nav className="region-tabs">
+          {Object.values(REGIONS).map((r) => (
+            <button
+              key={r.id}
+              className={region === r.id ? "tab on" : "tab"}
+              onClick={() => switchRegion(r.id)}
+            >
+              {r.tab}
+              <span className="n">{r.houses.length}</span>
+            </button>
+          ))}
+        </nav>
+        <p className="eyebrow">{cfg.eyebrow}</p>
         <h1>Дома, которые смотрим</h1>
-        <p className="lead">
-          {houses.length} домов с землёй ИЖС или ЛПХ, 8–15 млн ₽, примерно до 50 км от МКАД.
-          Фото прогнал через нейросеть: отдельно топ, обычные, рендеры и развалюхи.
-        </p>
+        <p className="lead">{cfg.lead(dataset.length)}</p>
       </header>
 
-      <div className="filters">
-        <div className="chips look-chips">
-          {LOOK_CHIPS.map((c) => (
-            <button
-              key={c.id}
-              className={look === c.id ? `chip on look-${c.id}` : `chip look-${c.id}`}
-              onClick={() => setLook(c.id)}
-            >
-              {c.label}
-              <span className="n">{lookCounts[c.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-        <div className="chips">
-          {PRICE_CHIPS.map((c) => (
-            <button key={c.id} className={price === c.id ? "chip on" : "chip"} onClick={() => setPrice(c.id)}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <div className="chips">
-          {KM_CHIPS.map((c) => (
-            <button key={c.id} className={km === c.id ? "chip on" : "chip"} onClick={() => setKm(c.id)}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <div className="row">
-          <div className="chips">
-            {["all", "ИЖС", "ЛПХ"].map((id) => (
-              <button key={id} className={land === id ? "chip on" : "chip"} onClick={() => setLand(id)}>
-                {id === "all" ? "Вся земля" : id}
-              </button>
-            ))}
-          </div>
-          <label className="sort">
-            <span>Сначала</span>
-            <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="price">дешевле</option>
-              <option value="look">сначала топ</option>
-              <option value="km">ближе к Москве</option>
-              <option value="area">больше дом</option>
-            </select>
-          </label>
-        </div>
-        <input
-          className="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Город, например Химки или Чехов"
-          list="cities"
-        />
-        <datalist id="cities">
-          {cities.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        <p className="count">
-          Показано <b>{filtered.length}</b> из {houses.length}
-        </p>
+      <div className="toolbar">
+        <button className="filters-btn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog">
+          <span>Фильтры</span>
+          {activeCount > 0 && <span className="dot">{activeCount}</span>}
+        </button>
+        <span className="toolbar-count">
+          Показано <b>{filtered.length}</b> из {dataset.length}
+        </span>
       </div>
 
       <section className="grid">
         {filtered.map((h) => (
-          <article
-            key={h.id}
-            className="card"
-            onClick={() => openHouse(h)}
-          >
+          <article key={h.id} className="card" onClick={() => openHouse(h)}>
             <div className="card-photo">
               <CardCarousel id={h.id} alt={h.title} />
               {LOOK_BADGE[h.look] && <div className={`badge look ${h.look}`}>{LOOK_BADGE[h.look]}</div>}
@@ -367,6 +446,82 @@ export default function App() {
 
       {filtered.length === 0 && <p className="empty">Ничего не нашлось — снимите фильтр или поменяйте город.</p>}
 
+      {filtersOpen && (
+        <div className={filtersOn ? "filters-drawer on" : "filters-drawer"}>
+          <div className="drawer-backdrop" onClick={closeFilters} />
+          <aside className="drawer" role="dialog" aria-modal="true" aria-label="Фильтры">
+            <div className="drawer-head">
+              <h3>Фильтры</h3>
+              <button className="drawer-close" onClick={closeFilters} aria-label="Закрыть фильтры">
+                ×
+              </button>
+            </div>
+            <div className="drawer-body">
+              <p className="drawer-label">Цена</p>
+              <div className="chips">
+                {priceChips.map((c) => (
+                  <button key={c.id} className={price === c.id ? "chip on" : "chip"} onClick={() => setPrice(c.id)}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+
+              {region === "mo" && (
+                <>
+                  <p className="drawer-label">Расстояние от МКАД</p>
+                  <div className="chips">
+                    {KM_CHIPS.map((c) => (
+                      <button key={c.id} className={km === c.id ? "chip on" : "chip"} onClick={() => setKm(c.id)}>
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <p className="drawer-label">Земля</p>
+              <div className="chips">
+                {["all", "ИЖС", "ЛПХ"].map((id) => (
+                  <button key={id} className={land === id ? "chip on" : "chip"} onClick={() => setLand(id)}>
+                    {id === "all" ? "Вся земля" : id}
+                  </button>
+                ))}
+              </div>
+
+              <p className="drawer-label">Сортировка</p>
+              <label className="sort">
+                <span>Сначала</span>
+                <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                  <option value="look">самые топовые</option>
+                  <option value="price">дешевле</option>
+                  <option value="area">больше дом</option>
+                  {region === "mo" && <option value="km">ближе к Москве</option>}
+                </select>
+              </label>
+
+              <p className="drawer-label">Поиск</p>
+              <input
+                className="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={cfg.searchPlaceholder}
+                list="cities"
+              />
+              <datalist id="cities">
+                {cities.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+            <div className="drawer-foot">
+              <button className="drawer-apply" onClick={closeFilters}>
+                Показать {filtered.length}
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {open && (
         <div className={modalOn ? "modal on" : "modal"} onClick={closeHouse}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
@@ -386,7 +541,7 @@ export default function App() {
                 {open.year && <li>год {open.year}</li>}
                 {open.comms && <li>{open.comms}</li>}
               </ul>
-              <HouseMap city={open.city} />
+              <HouseMap city={open.city} areaName={cfg.areaName} />
               <a className="avito" href={open.url} target="_blank" rel="noreferrer">
                 Открыть на Авито
               </a>
@@ -413,10 +568,10 @@ function Gallery({ id, title, slide, setSlide }) {
   );
 }
 
-function HouseMap({ city }) {
+function HouseMap({ city, areaName }) {
   if (!city) return null;
   const c = cityCoords[city];
-  const query = encodeURIComponent(`${city}, Московская область`);
+  const query = encodeURIComponent(`${city}, ${areaName}`);
   const src = c
     ? `https://yandex.ru/map-widget/v1/?ll=${c.lon},${c.lat}&z=12&pt=${c.lon},${c.lat},pm2rdm&l=map`
     : `https://yandex.ru/map-widget/v1/?text=${query}&z=12`;
